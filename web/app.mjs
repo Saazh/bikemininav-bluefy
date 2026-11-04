@@ -8,6 +8,10 @@ let position = null, destination = null, route = null;
 let watchId = null, lastNav = null, transferBusy = false, lastImageAt = 0;
 let lastImagePosition = null, lastNavAt = 0, routeVersion = 0, sentVersion = -1;
 let newestStatus = '';
+// HeiGIT replaced the old api.openrouteservice.org host in 2026.
+// Both geocoding and directions now use different versioned service prefixes.
+const ORS_GEOCODE_ENDPOINT = 'https://api.heigit.org/pelias/v1/search';
+const ORS_CYCLING_ENDPOINT = 'https://api.heigit.org/openrouteservice/v2/directions/cycling-regular/geojson';
 const renderer = new MiniMapRenderer($('mini'));
 
 function log(msg) {
@@ -23,7 +27,7 @@ function status(message, isError=false) {
 function fmtMeters(m) { return m < 1000 ? `${Math.round(m)} m` : `${(m/1000).toFixed(1)} km`; }
 function key() { return $('key').value.trim(); }
 function requireKey() {
-  if (!key()) throw new Error('Paste your openrouteservice key first. Search and routing require a key.');
+  if (!key()) throw new Error('Enter your openrouteservice / HeiGIT API key above. Both place search and cycling routes require it.');
   return key();
 }
 function ll(geoCoord) { return [geoCoord.latitude, geoCoord.longitude]; }
@@ -167,11 +171,23 @@ async function searchDestination() {
     chooseDestination([lat,lon],term); return;
   }
   const api=requireKey();
-  const url=new URL('https://api.openrouteservice.org/geocode/search');
+  const url=new URL(ORS_GEOCODE_ENDPOINT);
   url.searchParams.set('api_key',api);url.searchParams.set('text',term);url.searchParams.set('size','5');
   status(`Searching for “${term}”…`);
-  const resp=await fetch(url.toString());
-  if(!resp.ok) throw new Error(`Geocoding failed (HTTP ${resp.status}). Check ORS key, quota and network.`);
+  let resp;
+  try {
+    resp = await fetch(url.toString());
+  } catch (err) {
+    throw new Error(`Place search could not reach HeiGIT (${err.message}). Check internet access in Bluefy.`);
+  }
+  if (!resp.ok) {
+    const detail = (await resp.text()).slice(0, 180);
+    const hint = resp.status === 401 || resp.status === 403
+      ? 'Check your HeiGIT API key and enabled services.'
+      : resp.status === 429 ? 'API rate limit reached; retry later.'
+      : 'Check the service availability and connection.';
+    throw new Error(`Place search HTTP ${resp.status}: ${hint} ${detail}`);
+  }
   const json=await resp.json();
   const features=json.features || [];
   if(!features.length) throw new Error('No matching destinations. Try a more specific place or tap the map.');
@@ -193,13 +209,18 @@ async function planRoute() {
   const api=requireKey();
   const coords=[[position.latlon[1],position.latlon[0]], [destination.latlon[1],destination.latlon[0]]];
   status('Requesting cycling-regular directions from openrouteservice…');
-  const resp=await fetch('https://api.openrouteservice.org/v2/directions/cycling-regular/geojson',{
+  let resp;
+  try {
+    resp = await fetch(ORS_CYCLING_ENDPOINT,{
     method:'POST',headers:{'Authorization':api,'Content-Type':'application/json'},
     body:JSON.stringify({coordinates:coords,instructions:true,language:'en'})
-  });
+    });
+  } catch (err) {
+    throw new Error(`Cycling route could not reach HeiGIT (${err.message}). Check internet access in Bluefy.`);
+  }
   if(!resp.ok) {
     const body=(await resp.text()).slice(0,250);
-    throw new Error(`Routing HTTP ${resp.status}: ${body || 'Check your key / API quota'}`);
+    throw new Error(`Routing HTTP ${resp.status}: ${body || 'Check your HeiGIT key, service permissions and quota'}`);
   }
   const data=await resp.json();
   const feat=data.features?.[0];

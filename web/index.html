@@ -9,14 +9,14 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoXk34vSQ0BmYE=" crossorigin="">
   <link rel="stylesheet" href="./style.css">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script type="module" src="./app.mjs"></script>
+  <script type="module" src="./app.mjs?v=3"></script>
 </head>
 <body>
 <main>
   <header>
     <div class="mark">◉</div>
     <div><h1>BikeMiniNav</h1><p>iPhone → Bluetooth → Waveshare AMOLED</p></div>
-    <span class="ver">v0.2</span>
+    <span class="ver">v0.3</span>
   </header>
   <div class="notice">Prototype for a stationary setup. Test before riding, keep the iPhone unlocked in Bluefy, and never rely on this as your sole navigation device.</div>
   <section class="card">
@@ -33,7 +33,7 @@
   <section class="card">
     <div class="sectionhead"><h2>02 · Choose your destination</h2><span id="gps-state" class="pill">GPS off</span></div>
     <button class="outline full" id="gps">Enable iPhone GPS</button>
-    <label>Openrouteservice API key <a href="https://openrouteservice.org/dev/#/signup" target="_blank" rel="noopener noreferrer">Get a free key</a>
+    <label>HeiGIT / openrouteservice API key <a href="https://account.heigit.org/" target="_blank" rel="noopener noreferrer">Get a free key</a>
       <input id="key" type="password" placeholder="Paste your ORS API key" autocomplete="off" spellcheck="false">
     </label>
     <label class="rowcheck"><input type="checkbox" id="remember-key"> Remember API key on this device <span>(not recommended on shared phones)</span></label>
@@ -50,7 +50,7 @@
       <button id="route">Plan bicycle route</button>
       <button class="outline" id="stop">Stop route</button>
     </div>
-    <p class="help">You can also tap the map to choose a destination. Geocoding and bicycle routing use your own ORS key, not Nominatim.</p>
+    <p class="help">Enter your HeiGIT API key, type a destination, then tap Find. Select a result and tap Plan bicycle route. You can also tap the map or enter latitude, longitude.</p>
   </section>
   <section class="card mapcard">
     <div class="sectionhead"><h2>03 · Your route</h2><span class="pill">OpenStreetMap</span></div>

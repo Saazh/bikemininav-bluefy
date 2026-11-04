@@ -1,12 +1,5 @@
 // BikeMiniNav Linux/Bluefy - Waveshare ESP32-S3 AMOLED 1.43, LVGL 9, NimBLE.
-// Protocol is shared with web/protocol.mjs: BLE opcode 0x05 fits a 20-byte write.
-// Driver source files are fetched from the upstream Waveshare LVGL9 demo
-// by `python tools/bootstrap_drivers.py` before the first PlatformIO build.
-// The GATT characteristic is deliberately write-only: nearby devices can
-// spoof navigation in this prototype. Add pairing/bonding for field use.
-
 #include <Arduino.h>
-#define LV_CONF_INCLUDE_SIMPLE
 #include <lvgl.h>
 #include <JPEGDEC.h>
 #include <ArduinoJson.h>
@@ -33,6 +26,7 @@ static uint8_t *pendingJPEG = nullptr;
 static size_t rxCount = 0, expectedBytes = 0, completedLen = 0;
 static uint32_t expectedCRC = 0;
 static bool receiving = false, imageReady = false, decoding = false, navDirty = false;
+static bool displayReady = false, bleStarted = false;
 static SemaphoreHandle_t lock;
 static char navInstruction[65] = "Connect iPhone";
 static int turnMeters = 0, remainMeters = 0;
@@ -40,7 +34,7 @@ static float speedKmh = 0;
 static uint32_t lastNavMs = 0;
 static bool navEverReceived = false;
 static bool signalLostShown = false;
-static constexpr const char* TURN_NAMES[] = {
+static constexpr const char *TURN_NAMES[] = {
     "Left", "Right", "Sharp left", "Sharp right", "Slight left",
     "Slight right", "Straight", "Roundabout", "Exit roundabout",
     "U-turn", "Destination", "Start", "Keep left", "Keep right"
@@ -48,42 +42,41 @@ static constexpr const char* TURN_NAMES[] = {
 
 static uint32_t clockMs() { return millis(); }
 
-static uint32_t crc32(const uint8_t *data, size_t n) {
-    uint32_t c = 0xFFFFFFFFu;
-    for (size_t i = 0; i < n; ++i) {
-        c ^= data[i];
-        for (int j = 0; j < 8; ++j) {
-            c = (c >> 1) ^ ((c & 1u) ? 0xEDB88320u : 0u);
+static uint32_t crc32(const uint8_t *data, size_t size) {
+    uint32_t crc = 0xFFFFFFFFu;
+    for (size_t index = 0; index < size; ++index) {
+        crc ^= data[index];
+        for (int bit = 0; bit < 8; ++bit) {
+            crc = (crc >> 1) ^ ((crc & 1u) ? 0xEDB88320u : 0u);
         }
     }
-    return ~c;
+    return ~crc;
 }
 
-static uint32_t u32le(const uint8_t* p) {
-    return uint32_t(p[0]) | (uint32_t(p[1]) << 8) |
-           (uint32_t(p[2]) << 16) | (uint32_t(p[3]) << 24);
+static uint32_t u32le(const uint8_t *data) {
+    return uint32_t(data[0]) | (uint32_t(data[1]) << 8) |
+           (uint32_t(data[2]) << 16) | (uint32_t(data[3]) << 24);
 }
 
-// Called by the NimBLE host task. NEVER invoke LVGL from this thread.
 class PacketReceiver : public NimBLECharacteristicCallbacks {
-    uint8_t onWrite(NimBLECharacteristic *characteristic, NimBLEAttValue &value,
-                    NimBLEConnInfo &connInfo) override {
-        (void)characteristic;
+    void onWrite(NimBLECharacteristic *characteristic, NimBLEConnInfo &connInfo) override {
         (void)connInfo;
-        const uint8_t *p = value.data();
-        const size_t len = value.size();
-        if (!p || !len) return 0;
+        const NimBLEAttValue value = characteristic->getValue();
+        const uint8_t *data = value.data();
+        const size_t length = value.size();
+        if (!data || !length) return;
+
         xSemaphoreTake(lock, portMAX_DELAY);
-        switch (p[0]) {
-            case 0x01: {  // Navigation JSON; no image interleaving
+        switch (data[0]) {
+            case 0x01: {
                 JsonDocument json;
-                DeserializationError error = deserializeJson(json, p + 1, len - 1);
+                DeserializationError error = deserializeJson(json, data + 1, length - 1);
                 if (!error) {
                     turnMeters = json["turn_m"] | 0;
                     remainMeters = json["remain_m"] | 0;
                     speedKmh = json["speed"] | 0.0f;
-                    const char *s = json["instruction"] | "Follow route";
-                    snprintf(navInstruction, sizeof(navInstruction), "%s", s);
+                    const char *instruction = json["instruction"] | "Follow route";
+                    snprintf(navInstruction, sizeof(navInstruction), "%s", instruction);
                     navDirty = true;
                     navEverReceived = true;
                     lastNavMs = millis();
@@ -91,56 +84,54 @@ class PacketReceiver : public NimBLECharacteristicCallbacks {
                 }
                 break;
             }
-            case 0x05: { // Compact binary navigation (12 bytes; <= 20-byte GATT write)
-                if (len != 12) break;
-                const uint8_t kind = p[1];
-                turnMeters = uint16_t(p[2]) | (uint16_t(p[3]) << 8);
-                remainMeters = static_cast<int>(u32le(p + 4));
-                speedKmh = (uint16_t(p[8]) | (uint16_t(p[9]) << 8)) / 10.0f;
-                const uint16_t heading = uint16_t(p[10]) | (uint16_t(p[11]) << 8);
-                (void)heading; // The map is north-up, so the heading arrow is drawn on the phone.
+            case 0x05: {
+                if (length != 12) break;
+                const uint8_t kind = data[1];
+                turnMeters = uint16_t(data[2]) | (uint16_t(data[3]) << 8);
+                remainMeters = static_cast<int>(u32le(data + 4));
+                speedKmh = (uint16_t(data[8]) | (uint16_t(data[9]) << 8)) / 10.0f;
+                const uint16_t heading = uint16_t(data[10]) | (uint16_t(data[11]) << 8);
+                (void)heading;
                 snprintf(navInstruction, sizeof(navInstruction), "%s",
-                         kind < sizeof(TURN_NAMES)/sizeof(TURN_NAMES[0]) ? TURN_NAMES[kind] : "Follow route");
+                         kind < sizeof(TURN_NAMES) / sizeof(TURN_NAMES[0]) ? TURN_NAMES[kind] : "Follow route");
                 navDirty = true;
                 navEverReceived = true;
                 lastNavMs = millis();
                 signalLostShown = false;
                 break;
             }
-            case 0x02: {  // Start JPEG: length + CRC32
+            case 0x02: {
                 receiving = false;
                 rxCount = 0;
-                if (len != 9) break;
-                expectedBytes = u32le(p + 1);
-                expectedCRC = u32le(p + 5);
+                if (length != 9) break;
+                expectedBytes = u32le(data + 1);
+                expectedCRC = u32le(data + 5);
                 if (expectedBytes > 0 && expectedBytes <= MAX_JPG) receiving = true;
                 break;
             }
-            case 0x03: {  // JPEG fragment
-                if (!receiving || (rxCount + len - 1) > expectedBytes) {
+            case 0x03:
+                if (!receiving || (rxCount + length - 1) > expectedBytes) {
                     receiving = false;
                     break;
                 }
-                memcpy(rxJPEG + rxCount, p + 1, len - 1);
-                rxCount += len - 1;
+                memcpy(rxJPEG + rxCount, data + 1, length - 1);
+                rxCount += length - 1;
                 break;
-            }
-            case 0x04: {  // End JPEG; validate before showing it
+            case 0x04:
                 if (receiving && rxCount == expectedBytes &&
                     crc32(rxJPEG, rxCount) == expectedCRC && !decoding) {
-                    uint8_t *tmp = rxJPEG;
+                    uint8_t *temporary = rxJPEG;
                     rxJPEG = pendingJPEG;
-                    pendingJPEG = tmp;
+                    pendingJPEG = temporary;
                     completedLen = rxCount;
                     imageReady = true;
                 }
                 receiving = false;
                 break;
-            }
-            default: break;
+            default:
+                break;
         }
         xSemaphoreGive(lock);
-        return 0;  // NimBLEGattStatus::Success
     }
 };
 static PacketReceiver receiver;
@@ -153,27 +144,27 @@ static void initBLE() {
     auto service = server->createService(SERVICE_UUID);
     auto characteristic = service->createCharacteristic(WRITE_UUID, NIMBLE_PROPERTY::WRITE, 260);
     characteristic->setCallbacks(&receiver);
-    service->start();
-    auto ad = NimBLEDevice::getAdvertising();
-    ad->addServiceUUID(SERVICE_UUID);
-    ad->setName("BikeMiniNav");
-    ad->start();
+    auto advertising = NimBLEDevice::getAdvertising();
+    advertising->addServiceUUID(SERVICE_UUID);
+    advertising->setName("BikeMiniNav");
+    advertising->start();
+    bleStarted = true;
     Serial.println("BLE: advertising BikeMiniNav");
 }
 
 static int jpegDraw(JPEGDRAW *block) {
     if (block->x < 0 || block->y < 0 || block->x + block->iWidth > MAP ||
         block->y + block->iHeight > MAP) return 0;
-    for (int y = 0; y < block->iHeight; ++y) {
-        memcpy(mapRGB + ((block->y + y)*MAP + block->x)*2,
-               block->pPixels + y*block->iWidth, block->iWidth*2);
+    for (int row = 0; row < block->iHeight; ++row) {
+        memcpy(mapRGB + ((block->y + row) * MAP + block->x) * 2,
+               block->pPixels + row * block->iWidth, block->iWidth * 2);
     }
     return 1;
 }
 
-static void flush(lv_display_t *disp, const lv_area_t *area, uint8_t *pixels) {
+static void flush(lv_display_t *display, const lv_area_t *area, uint8_t *pixels) {
     amoled.drawArea(area->x1, area->y1, area->x2, area->y2, (uint16_t *)pixels);
-    lv_display_flush_ready(disp);
+    lv_display_flush_ready(display);
 }
 
 static void roundArea(lv_event_t *e) {
@@ -183,8 +174,8 @@ static void roundArea(lv_event_t *e) {
     area->y1 &= ~1;
     area->x2 |= 1;
     area->y2 |= 1;
-    area->x2 = min(area->x2, SCREEN - 1);
-    area->y2 = min(area->y2, SCREEN - 1);
+    if (area->x2 >= SCREEN) area->x2 = SCREEN - 1;
+    if (area->y2 >= SCREEN) area->y2 = SCREEN - 1;
 }
 
 static void readTouch(lv_indev_t *, lv_indev_data_t *data) {
@@ -227,29 +218,47 @@ static void initUI() {
 
 void setup() {
     Serial.begin(115200);
-    delay(600);
+    delay(1500);  // Let USB CDC connect after reset.
+    Serial.println("\n========== BIKEMININAV BOOT ==========");
+
     lock = xSemaphoreCreateMutex();
     rxJPEG = static_cast<uint8_t *>(heap_caps_malloc(MAX_JPG, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     pendingJPEG = static_cast<uint8_t *>(heap_caps_malloc(MAX_JPG, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
-    mapRGB = static_cast<uint8_t *>(heap_caps_malloc(MAP*MAP*2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    mapRGB = static_cast<uint8_t *>(heap_caps_malloc(MAP * MAP * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    Serial.printf("PSRAM free: %u bytes\n", (unsigned)ESP.getFreePsram());
     if (!lock || !rxJPEG || !pendingJPEG || !mapRGB) {
-        Serial.println("Out of PSRAM / mutex creation failed");
-        while (true) delay(1000);
+        Serial.println("FATAL: PSRAM / mutex allocation failed. Check OPI PSRAM settings.");
+        while (true) { Serial.println("FATAL: no map buffers"); delay(2000); }
     }
+
+    // Start BLE BEFORE touch/display initialization. A display fault should
+    // not hide the device from Bluefy or prevent USB serial diagnostics.
+    initBLE();
+
+    Serial.println("DISPLAY: starting touch...");
     Touch_Init();
+    Serial.println("DISPLAY: starting AMOLED...");
     if (!amoled.begin()) {
-        Serial.println("AMOLED initialization failed. Check driver version.");
-        while (true) delay(1000);
+        Serial.println("DISPLAY ERROR: AMOLED init failed; BLE remains available.");
+        // loop() will remain alive and print diagnostics, without calling LVGL.
+        return;
     }
+
+    Serial.println("LVGL: initializing...");
     lv_init();
     lv_tick_set_cb(clockMs);
     lvDisp = lv_display_create(SCREEN, SCREEN);
+    if (!lvDisp) {
+        Serial.println("DISPLAY ERROR: LVGL display allocation failed");
+        return;
+    }
+
     constexpr size_t bufferBytes = SCREEN * 48 * 2;
     auto *bufferA = static_cast<uint8_t *>(heap_caps_malloc(bufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     auto *bufferB = static_cast<uint8_t *>(heap_caps_malloc(bufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
     if (!bufferA || !bufferB) {
-        Serial.println("LVGL buffer allocation failed");
-        while (true) delay(1000);
+        Serial.println("DISPLAY ERROR: LVGL buffers allocation failed");
+        return;
     }
     lv_display_set_flush_cb(lvDisp, flush);
     lv_display_set_buffers(lvDisp, bufferA, bufferB, bufferBytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
@@ -258,11 +267,22 @@ void setup() {
     lv_indev_set_type(input, LV_INDEV_TYPE_POINTER);
     lv_indev_set_read_cb(input, readTouch);
     initUI();
-    initBLE();
-    Serial.println("Ready for iPhone");
+    displayReady = true;
+    Serial.println("DISPLAY: ready");
+    Serial.println("BIKEMININAV: Ready for iPhone");
 }
 
 void loop() {
+    // Repeated heartbeat even when early startup messages were missed.
+    static uint32_t lastLog = 0;
+    if ((uint32_t)(millis() - lastLog) >= 2000) {
+        lastLog = millis();
+        Serial.printf("ESP32 ALIVE | display=%s | BLE=%s\n",
+                      displayReady ? "READY" : "NOT READY",
+                      bleStarted ? "STARTED" : "FAILED");
+    }
+    if (!displayReady) { delay(20); return; }
+
     static JPEGDEC decoder;
     bool show = false;
     size_t showLength = 0;
