@@ -254,7 +254,7 @@ async function sendTest() {
       [center[0]+.0002,center[1]+.0002],[center[0]+.0012,center[1]+.0002]];
     await writePacket(makeNavPacket({turnType:1,turnMeters:120,remainingMeters:3200,speedKmh:18.2,heading:10}));
     await renderer.render({center,route:demoRoute,heading:10,destination:demoRoute.at(-1),zoom:Number($('mini-zoom').value),maneuvers:[{latlon:demoRoute[2],icon:'↱'}]});
-    const jpg=await renderer.jpeg(.36);
+    const jpg=await renderer.jpeg();
     await sendJpeg(jpg);
     status('Test map sent. The Waveshare should show local streets and “Right 120 m”. Test data is simulated.');
   } finally {transferBusy=false;}
@@ -396,7 +396,7 @@ async function syncNavigation() {
   transferBusy=true;
   try {
     await refreshPreview();
-    const jpeg=await renderer.jpeg(.37);
+    const jpeg=await renderer.jpeg();
     await sendJpeg(jpeg);
     lastImageAt=Date.now();lastImagePosition=[...position.latlon];sentVersion=routeVersion;
     if(route && s.crossTrack>60) status('GPS is >60 m away from the route. Stop and recalculate if needed.');

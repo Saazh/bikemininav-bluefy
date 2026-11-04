@@ -2,7 +2,7 @@
 export const SERVICE_UUID = '7e9d1000-2a39-4b25-b3e4-cb7d1fc2ac10';
 export const WRITE_UUID = '7e9d1001-2a39-4b25-b3e4-cb7d1fc2ac10';
 export const MAX_JPEG = 90000;
-export const MAP_SIZE = 288;
+export const MAP_SIZE = 384;
 
 // ORS step types; firmware shares these numeric codes.
 export const TURN_LABELS = [

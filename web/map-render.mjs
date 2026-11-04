@@ -1,7 +1,7 @@
-import { MAP_SIZE } from './protocol.mjs';
+import { MAP_SIZE, MAX_JPEG } from './protocol.mjs';
 import { worldPixel } from './geometry.mjs';
 
-/** 288x288 pixel map sent to the watch. Loads only currently visible OSM tiles.
+/** 384x384 pixel map sent to the watch. Loads only currently visible OSM tiles.
  * Browser caching honors OSM response headers. No offline caching or prefetching.
  */
 export class MiniMapRenderer {
@@ -90,8 +90,13 @@ export class MiniMapRenderer {
     ctx.fillText('© OpenStreetMap contributors',W-6,W-7);
     return this.canvas;
   }
-  async jpeg(quality=0.4) {
-    const blob = await new Promise((res,rej) => this.canvas.toBlob(x=>x?res(x):rej(new Error('JPEG encoding failed')),'image/jpeg',quality));
-    return new Uint8Array(await blob.arrayBuffer());
+  async jpeg(quality=0.64) {
+    for (let attempt=0; attempt<5; attempt++) {
+      const currentQuality=Math.max(0.3,quality-attempt*0.1);
+      const blob=await new Promise((res,rej) => this.canvas.toBlob(x=>x?res(x):rej(new Error('JPEG encoding failed')),'image/jpeg',currentQuality));
+      if(blob.size<=MAX_JPEG) return new Uint8Array(await blob.arrayBuffer());
+      if(currentQuality===0.3) break;
+    }
+    throw new Error('Map image is too large to send over BLE. Zoom out and try again.');
   }
 }
