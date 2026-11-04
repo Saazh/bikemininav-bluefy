@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#081521">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>BikeMiniNav · iPhone / Bluefy</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoXk34vSQ0BmYE=" crossorigin="">
+  <link rel="stylesheet" href="./style.css">
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+<main>
+  <header>
+    <div class="mark">◉</div>
+    <div><h1>BikeMiniNav</h1><p>iPhone → Bluetooth → Waveshare AMOLED</p></div>
+    <span class="ver">v0.2</span>
+  </header>
+  <div class="notice">Prototype for a stationary setup. Test before riding, keep the iPhone unlocked in Bluefy, and never rely on this as your sole navigation device.</div>
+  <section class="card">
+    <div class="sectionhead"><h2>01 · Connect the display</h2><span id="ble-state" class="pill">Disconnected</span></div>
+    <div class="buttons">
+      <button id="connect">Connect BikeMiniNav</button>
+      <button class="outline" id="test">Send test mini-map</button>
+    </div>
+    <label class="compact">BLE packet size
+      <select id="chunks"><option value="180">180 bytes (fast, if supported)</option><option value="120">120 bytes</option><option value="64">64 bytes</option><option value="20">20 bytes (compatible, slow)</option></select>
+    </label>
+    <p class="help">Connect works only over HTTPS in Bluefy on iPhone. Test map works without a routing API key.</p>
+  </section>
+  <section class="card">
+    <div class="sectionhead"><h2>02 · Choose your destination</h2><span id="gps-state" class="pill">GPS off</span></div>
+    <button class="outline full" id="gps">Enable iPhone GPS</button>
+    <label>Openrouteservice API key <a href="https://openrouteservice.org/dev/#/signup" target="_blank" rel="noopener noreferrer">Get a free key</a>
+      <input id="key" type="password" placeholder="Paste your ORS API key" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="rowcheck"><input type="checkbox" id="remember-key"> Remember API key on this device <span>(not recommended on shared phones)</span></label>
+    <div class="inputpair">
+      <label>Search destination
+        <input id="destination" placeholder="e.g. Bremen Hauptbahnhof" autocomplete="street-address">
+      </label>
+      <button id="search">Find</button>
+    </div>
+    <label class="compact">Search results
+      <select id="results"><option value="">Or tap a destination on the map</option></select>
+    </label>
+    <div class="buttons">
+      <button id="route">Plan bicycle route</button>
+      <button class="outline" id="stop">Stop route</button>
+    </div>
+    <p class="help">You can also tap the map to choose a destination. Geocoding and bicycle routing use your own ORS key, not Nominatim.</p>
+  </section>
+  <section class="card mapcard">
+    <div class="sectionhead"><h2>03 · Your route</h2><span class="pill">OpenStreetMap</span></div>
+    <div id="map" aria-label="Map showing current location, destination and bicycle route"></div>
+    <div class="stats">
+      <div><small>Next maneuver</small><strong id="turn">—</strong></div>
+      <div><small>Turn in</small><strong id="turn-distance">—</strong></div>
+      <div><small>Remaining</small><strong id="remain">—</strong></div>
+      <div><small>Speed</small><strong id="speed">—</strong></div>
+    </div>
+    <div class="miniwrap">
+      <div><h3>Waveshare mini-map preview</h3><p>288 × 288 JPEG, rendered from visible OSM streets and route</p></div>
+      <canvas width="288" height="288" id="mini"></canvas>
+    </div>
+    <p class="attrib">Map data © <a target="_blank" rel="noopener noreferrer" href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> · Routing © openrouteservice / HeiGIT</p>
+  </section>
+  <section class="card">
+    <div class="sectionhead"><h2>Connection & transfer log</h2><span id="transfer-status" class="pill">Idle</span></div>
+    <p id="status" role="status" aria-live="polite">Ready. Connect the Waveshare, then send a test mini-map.</p>
+    <pre id="log"></pre>
+  </section>
+  <footer>Keep this page open in Bluefy. Phone lock/background suspension can interrupt GPS and Bluetooth.</footer>
+</main>
+</body>
+</html>

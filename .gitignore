@@ -1,0 +1,14 @@
+.DS_Store
+**/.pio/
+**/__pycache__/
+firmware/.waveshare_upstream/
+firmware/include/lv_conf.h
+firmware/src/amoled.cpp
+firmware/src/amoled.h
+firmware/src/board_config.h
+firmware/src/FT3168.cpp
+firmware/src/FT3168.h
+firmware/src/i2c.c
+firmware/src/i2c.h
+firmware/src/low_level_amoled.c
+firmware/src/low_level_amoled.h
