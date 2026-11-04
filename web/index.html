@@ -3,76 +3,128 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#081521">
+  <meta name="theme-color" content="#f5f7fa">
   <meta name="referrer" content="strict-origin-when-cross-origin">
-  <title>BikeMiniNav · iPhone / Bluefy</title>
+  <title>BikeMiniNav · Cycling navigation</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoXk34vSQ0BmYE=" crossorigin="">
-  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./style.css?v=4">
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script type="module" src="./app.mjs?v=3"></script>
+  <script type="module" src="./app.mjs?v=4"></script>
 </head>
 <body>
 <main>
-  <header>
-    <div class="mark">◉</div>
-    <div><h1>BikeMiniNav</h1><p>iPhone → Bluetooth → Waveshare AMOLED</p></div>
-    <span class="ver">v0.3</span>
+  <header class="topbar">
+    <div class="brandmark" aria-hidden="true"><svg viewBox="0 0 32 32" width="28" height="28"><circle cx="16" cy="16" r="12" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M11 23 16 8l5 15-5-3z" fill="currentColor"/></svg></div>
+    <div class="brandcopy"><h1>BikeMiniNav</h1><p>Your route, beautifully simple.</p></div>
+    <span class="version">v0.4</span>
   </header>
-  <div class="notice">Prototype for a stationary setup. Test before riding, keep the iPhone unlocked in Bluefy, and never rely on this as your sole navigation device.</div>
-  <section class="card">
-    <div class="sectionhead"><h2>01 · Connect the display</h2><span id="ble-state" class="pill">Disconnected</span></div>
-    <div class="buttons">
-      <button id="connect">Connect BikeMiniNav</button>
-      <button class="outline" id="test">Send test mini-map</button>
+
+  <section class="hero" aria-label="Interactive bicycle navigation map">
+    <div id="map" role="application" aria-label="Map. Drag to explore, pinch to zoom, use the route arrows to examine turns."></div>
+    <div class="map-shade" aria-hidden="true"></div>
+
+    <div class="map-header glass">
+      <div id="turn-icon" class="maneuver-icon" aria-hidden="true">↑</div>
+      <div class="maneuver-text">
+        <span id="map-eyebrow">READY TO RIDE</span>
+        <strong id="turn-instruction">Choose a destination</strong>
+        <span id="turn-distance">Explore the map or enable GPS</span>
+      </div>
+      <div class="header-ble"><span class="connection-dot" id="connection-dot"></span><span id="map-ble-label">Offline</span></div>
     </div>
-    <label class="compact">BLE packet size
-      <select id="chunks"><option value="180">180 bytes (fast, if supported)</option><option value="120">120 bytes</option><option value="64">64 bytes</option><option value="20">20 bytes (compatible, slow)</option></select>
-    </label>
-    <p class="help">Connect works only over HTTPS in Bluefy on iPhone. Test map works without a routing API key.</p>
+
+    <div class="map-badges" aria-label="Trip overview">
+      <span id="route-distance" class="map-badge glass">◈ &nbsp; No route</span>
+      <span id="route-eta" class="map-badge glass">◷ &nbsp; —</span>
+      <span id="speed-map" class="map-badge glass">↗ &nbsp; — km/h</span>
+    </div>
+
+    <div class="map-tools" aria-label="Map controls">
+      <button type="button" id="follow" class="tool-btn selected" title="Follow my location" aria-label="Follow my location">⌾</button>
+      <button type="button" id="route-overview" class="tool-btn" title="Show the entire route" aria-label="Show entire route" disabled>◇</button>
+      <button type="button" id="zoom-in" class="tool-btn" title="Zoom in" aria-label="Zoom in">+</button>
+      <button type="button" id="zoom-out" class="tool-btn" title="Zoom out" aria-label="Zoom out">−</button>
+    </div>
+
+    <div class="map-mode glass" id="map-mode">MAP · EXPLORE</div>
+
+    <div class="map-footer">
+      <div class="map-action-row">
+        <button type="button" class="map-pill glass" id="pick" aria-pressed="true">⌖ &nbsp; Choose destination</button>
+        <button type="button" class="map-pill glass" id="focus-next" disabled>↱ &nbsp; Next turn</button>
+      </div>
+      <div id="step-card" class="step-card glass" hidden>
+        <button class="step-arrow" id="step-prev" aria-label="Previous instruction" type="button">‹</button>
+        <div class="step-info">
+          <span id="step-count">TURN 1 OF 1</span>
+          <strong id="step-instruction">Follow your route</strong>
+          <span id="step-distance">—</span>
+        </div>
+        <button class="step-arrow" id="step-next" aria-label="Next instruction" type="button">›</button>
+      </div>
+      <div id="map-hint" class="map-hint">Drag or pinch to explore. Tap the map to choose your destination.</div>
+    </div>
   </section>
-  <section class="card">
-    <div class="sectionhead"><h2>02 · Choose your destination</h2><span id="gps-state" class="pill">GPS off</span></div>
-    <button class="outline full" id="gps">Enable iPhone GPS</button>
-    <label>HeiGIT / openrouteservice API key <a href="https://account.heigit.org/" target="_blank" rel="noopener noreferrer">Get a free key</a>
-      <input id="key" type="password" placeholder="Paste your ORS API key" autocomplete="off" spellcheck="false">
-    </label>
-    <label class="rowcheck"><input type="checkbox" id="remember-key"> Remember API key on this device <span>(not recommended on shared phones)</span></label>
-    <div class="inputpair">
-      <label>Search destination
-        <input id="destination" placeholder="e.g. Bremen Hauptbahnhof" autocomplete="street-address">
-      </label>
-      <button id="search">Find</button>
+
+  <div class="below-map">
+    <div class="panel-grid">
+      <section class="card" aria-labelledby="dest-heading">
+        <div class="sectionhead"><div><span class="kicker">01 / PLAN</span><h2 id="dest-heading">Where to?</h2></div><span id="gps-state" class="badge">GPS off</span></div>
+        <button type="button" class="secondary full" id="gps">⌾ &nbsp; Enable iPhone location</button>
+        <label class="field">Search a place or address
+          <div class="inputpair">
+            <input id="destination" placeholder="e.g. Bremen Hauptbahnhof" autocomplete="street-address">
+            <button type="button" id="search">Find</button>
+          </div>
+        </label>
+        <label class="field">Matching locations
+          <select id="results"><option value="">Or choose a destination directly on the map</option></select>
+        </label>
+        <div class="buttons"><button type="button" id="route">Plan cycling route</button><button type="button" id="stop" class="secondary">Clear route</button></div>
+        <details class="settings" id="routing-settings"><summary>Routing API settings</summary>
+          <label class="field">HeiGIT / openrouteservice key <a href="https://account.heigit.org/" target="_blank" rel="noopener noreferrer">Get a key</a>
+            <input id="key" type="password" placeholder="Paste your personal key" autocomplete="off" spellcheck="false">
+          </label>
+          <label class="rowcheck"><input type="checkbox" id="remember-key"> Save API key on this device (avoid shared devices)</label>
+        </details>
+        <p class="help">Search uses openrouteservice. Choose a result or select a destination on the map, then plan a cycling route.</p>
+      </section>
+
+      <section class="card" aria-labelledby="device-heading">
+        <div class="sectionhead"><div><span class="kicker">02 / DISPLAY</span><h2 id="device-heading">Your Waveshare</h2></div><span id="ble-state" class="badge">Disconnected</span></div>
+        <div class="buttons"><button type="button" id="connect">Connect BikeMiniNav</button><button type="button" id="test" class="secondary">Send test mini-map</button></div>
+        <div class="device-preview">
+          <div class="watch-bezel"><canvas width="288" height="288" id="mini" aria-label="Preview of the 288 by 288 map sent to the Waveshare"></canvas></div>
+          <div class="device-settings">
+            <strong>Mini-map preview</strong>
+            <small>Closer street-level view, sent over Bluetooth.</small>
+            <label class="field">Display map zoom
+              <select id="mini-zoom"><option value="16">Wide · 16</option><option value="17" selected>Balanced · 17</option><option value="18">Close · 18</option></select>
+            </label>
+            <label class="field">BLE packet size
+              <select id="chunks"><option value="180">180 bytes (fast)</option><option value="120">120 bytes</option><option value="64">64 bytes</option><option value="20">20 bytes (compatible)</option></select>
+            </label>
+          </div>
+        </div>
+        <p class="help">The watch always shows the live GPS-centered mini-map. Exploring a turn on your phone does not interrupt guidance on your handlebars.</p>
+      </section>
     </div>
-    <label class="compact">Search results
-      <select id="results"><option value="">Or tap a destination on the map</option></select>
-    </label>
-    <div class="buttons">
-      <button id="route">Plan bicycle route</button>
-      <button class="outline" id="stop">Stop route</button>
-    </div>
-    <p class="help">Enter your HeiGIT API key, type a destination, then tap Find. Select a result and tap Plan bicycle route. You can also tap the map or enter latitude, longitude.</p>
-  </section>
-  <section class="card mapcard">
-    <div class="sectionhead"><h2>03 · Your route</h2><span class="pill">OpenStreetMap</span></div>
-    <div id="map" aria-label="Map showing current location, destination and bicycle route"></div>
-    <div class="stats">
-      <div><small>Next maneuver</small><strong id="turn">—</strong></div>
-      <div><small>Turn in</small><strong id="turn-distance">—</strong></div>
-      <div><small>Remaining</small><strong id="remain">—</strong></div>
-      <div><small>Speed</small><strong id="speed">—</strong></div>
-    </div>
-    <div class="miniwrap">
-      <div><h3>Waveshare mini-map preview</h3><p>288 × 288 JPEG, rendered from visible OSM streets and route</p></div>
-      <canvas width="288" height="288" id="mini"></canvas>
-    </div>
+
+    <section class="card trip-details">
+      <div class="sectionhead"><div><span class="kicker">03 / RIDE</span><h2>Live journey</h2></div><span id="transfer-status" class="badge">Idle</span></div>
+      <div class="stats">
+        <div><small>Next turn</small><strong id="turn">—</strong></div>
+        <div><small>Turn in</small><strong id="turn-distance-stat">—</strong></div>
+        <div><small>Remaining</small><strong id="remain">—</strong></div>
+        <div><small>Speed</small><strong id="speed">—</strong></div>
+      </div>
+      <details class="diagnostics"><summary>Connection and transfer log</summary>
+        <p id="status" role="status" aria-live="polite">Ready. Connect your display and plan a route.</p><pre id="log"></pre>
+      </details>
+    </section>
+    <p class="notice">Prototype only. Keep Bluefy open and your iPhone unlocked. Verify instructions independently before riding. The app does not automatically reroute.</p>
     <p class="attrib">Map data © <a target="_blank" rel="noopener noreferrer" href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> · Routing © openrouteservice / HeiGIT</p>
-  </section>
-  <section class="card">
-    <div class="sectionhead"><h2>Connection & transfer log</h2><span id="transfer-status" class="pill">Idle</span></div>
-    <p id="status" role="status" aria-live="polite">Ready. Connect the Waveshare, then send a test mini-map.</p>
-    <pre id="log"></pre>
-  </section>
-  <footer>Keep this page open in Bluefy. Phone lock/background suspension can interrupt GPS and Bluetooth.</footer>
+  </div>
 </main>
 </body>
 </html>

@@ -30,7 +30,7 @@ export class MiniMapRenderer {
     }
     return this.images.get(key);
   }
-  async render({center, route = [], heading = 0, zoom = 16, destination = null}) {
+  async render({center, route = [], heading = 0, zoom = 17, destination = null, location = null, maneuvers = []}) {
     const ctx = this.ctx, W = MAP_SIZE;
     const at = worldPixel(center[0], center[1], zoom);
     const left = at.x-W/2, top = at.y-W/2;
@@ -62,8 +62,26 @@ export class MiniMapRenderer {
       ctx.fillStyle='#e5426e'; ctx.beginPath(); ctx.arc(x,y,5.5,0,Math.PI*2); ctx.fill();
       ctx.lineWidth=2;ctx.strokeStyle='white';ctx.stroke();
     }
+    // Tiny, translucent maneuver badges baked into the JPEG for the round AMOLED.
+    // The live numeric turn instruction remains a separate, reliable BLE packet.
+    let visibleBadges = 0;
+    for(const step of maneuvers) {
+      if(visibleBadges >= 6) break;
+      const pin=worldPixel(step.latlon[0],step.latlon[1],zoom);
+      const px=pin.x-left, py=pin.y-top;
+      if(px<16 || py<18 || px>W-16 || py>W-24 || Math.hypot(px-W/2,py-W/2)<25) continue;
+      visibleBadges++;
+      ctx.save();ctx.beginPath();ctx.arc(px,py,13,0,Math.PI*2);
+      ctx.fillStyle='rgba(255,255,255,.78)';ctx.fill();
+      ctx.lineWidth=1.5;ctx.strokeStyle='rgba(0,122,255,.75)';ctx.stroke();
+      ctx.fillStyle='#006ed9';ctx.font='bold 17px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillText(step.icon || '↑',px,py+1);ctx.restore();
+    }
     // Location marker: triangular orientation (heading 0° = north).
-    ctx.save(); ctx.translate(W/2,W/2); ctx.rotate((heading||0)*Math.PI/180);
+    const loc = location || center;
+    const locationPx = worldPixel(loc[0],loc[1],zoom);
+    const markX=locationPx.x-left, markY=locationPx.y-top;
+    ctx.save();ctx.translate(markX,markY);ctx.rotate((heading||0)*Math.PI/180);
     ctx.fillStyle='#155ee9'; ctx.strokeStyle='white';ctx.lineWidth=3;
     ctx.beginPath();ctx.moveTo(0,-14);ctx.lineTo(10,12);ctx.lineTo(0,7);ctx.lineTo(-10,12);ctx.closePath();
     ctx.fill();ctx.stroke();ctx.restore();
